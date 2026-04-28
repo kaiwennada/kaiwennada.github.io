@@ -51,6 +51,17 @@ const BEHAVIORS = {
   vortex:{label:'vortex',description:'rotation around Y with radial noise.',
     init(pos,vel,n){for(let i=0;i<n;i++){const i3=i*3,a=Math.random()*Math.PI*2,r=0.3+Math.random()*2.3;pos[i3]=Math.cos(a)*r;pos[i3+1]=(Math.random()-0.5)*3.5;pos[i3+2]=Math.sin(a)*r;vel[i3]=vel[i3+1]=vel[i3+2]=0;}},
     step(pos,vel,n,t,dt,params){const h=dt*params.flow;for(let i=0;i<n;i++){const i3=i*3,x=pos[i3],z=pos[i3+2],r=Math.sqrt(x*x+z*z)||0.01,omega=1.6/(r*0.7+0.4),c=Math.cos(omega*h),s=Math.sin(omega*h);pos[i3]=x*c-z*s;pos[i3+2]=x*s+z*c;pos[i3+1]+=Math.sin(t*0.5+i*0.07)*h*0.25;const r2=Math.sqrt(pos[i3]*pos[i3]+pos[i3+2]*pos[i3+2]),tgt=1.5;pos[i3]+=(pos[i3]/(r2+0.01))*(tgt-r2)*0.01;pos[i3+2]+=(pos[i3+2]/(r2+0.01))*(tgt-r2)*0.01;}}},
+  lightning:{label:'lightning',description:'sudden branching flashes and rapid outward bursts.',
+    init(pos,vel,n,phases){for(let i=0;i<n;i++){const i3=i*3;pos[i3]=(Math.random()-0.5)*0.6;pos[i3+1]=(Math.random()-0.5)*0.6;pos[i3+2]=(Math.random()-0.5)*0.6;vel[i3]=(Math.random()-0.5)*0.002;vel[i3+1]=(Math.random()-0.5)*0.002;vel[i3+2]=(Math.random()-0.5)*0.002;phases[i3]=Math.random();phases[i3+1]=Math.random();phases[i3+2]=Math.random();}},
+    step(pos,vel,n,t,dt,params){const flow=params.flow,burstProb=0.0009*flow,branchProb=0.002*flow,damp=0.985;for(let i=0;i<n;i++){const i3=i*3; // occasional burst
+        if(Math.random()<burstProb){const a=Math.random()*Math.PI*2,phi=(Math.random()-0.5)*Math.PI/6;const sp=0.6+Math.random()*1.6;vel[i3]+=Math.cos(a)*Math.cos(phi)*sp;vel[i3+1]+=Math.sin(phi)*sp*0.6;vel[i3+2]+=Math.sin(a)*Math.cos(phi)*sp;}
+        // branching: nearby particle influences create zig-zag
+        if(Math.random()<branchProb){const j=(i*37)%n;const j3=j*3;vel[i3]+=(pos[i3]-pos[j3])*0.02;vel[i3+1]+=(pos[i3+1]-pos[j3+1])*0.02;vel[i3+2]+=(pos[i3+2]-pos[j3+2])*0.02;}
+        // integrate with damping
+        vel[i3]*=damp;vel[i3+1]*=damp;vel[i3+2]*=damp;pos[i3]+=vel[i3]*dt*60;pos[i3+1]+=vel[i3+1]*dt*60;pos[i3+2]+=vel[i3+2]*dt*60;
+        // wrap back if too far
+        const r2=pos[i3]*pos[i3]+pos[i3+1]*pos[i3+1]+pos[i3+2]*pos[i3+2]; if(r2>36){pos[i3]*=0.2;pos[i3+1]*=0.2;pos[i3+2]*=0.2;vel[i3]=vel[i3+1]=vel[i3+2]=0;}}
+    },
   curl:{label:'curl noise',description:'fluid-like divergence-free flow.',
     init(pos,vel,n){for(let i=0;i<n;i++){const i3=i*3;pos[i3]=(Math.random()-0.5)*4;pos[i3+1]=(Math.random()-0.5)*4;pos[i3+2]=(Math.random()-0.5)*1.5;}},
     step(pos,vel,n,t,dt,params){const h=dt*params.flow*0.9,f=0.45,tt=t*0.18;for(let i=0;i<n;i++){const i3=i*3,x=pos[i3],y=pos[i3+1],z=pos[i3+2];pos[i3]+=(Math.sin(y*f+tt)-Math.cos(z*f-tt*0.7))*h;pos[i3+1]+=(Math.sin(z*f+tt*1.1)-Math.cos(x*f+tt*0.9))*h;pos[i3+2]+=(Math.sin(x*f-tt*0.6)-Math.cos(y*f+tt*1.3))*h*0.5;const r=Math.sqrt(x*x+y*y+z*z);if(r>3){const k=(r-3)*0.04;pos[i3]-=(x/r)*k;pos[i3+1]-=(y/r)*k;pos[i3+2]-=(z/r)*k;}}}},
@@ -58,7 +69,7 @@ const BEHAVIORS = {
     init(pos,vel,n){for(let i=0;i<n;i++){const i3=i*3;pos[i3]=(Math.random()-0.5)*3;pos[i3+1]=(Math.random()-0.5)*3;pos[i3+2]=(Math.random()-0.5)*3;const a=Math.random()*Math.PI*2;vel[i3]=Math.cos(a)*0.02;vel[i3+1]=Math.sin(a)*0.02;vel[i3+2]=(Math.random()-0.5)*0.02;}},
     step(pos,vel,n,t,dt,params){const flow=params.flow,tx=Math.sin(t*0.21)*2.6,ty=Math.sin(t*0.29)*1.9,tz=Math.sin(t*0.17)*2.4,TP=0.0028*flow,AW=0.08,SO=[1,7,29,73,167],SD=0.035,SK=0.013,MN=0.04*flow,MX=0.14*flow,DP=0.992;for(let i=0;i<n;i++){const i3=i*3,px=pos[i3],py=pos[i3+1],pz=pos[i3+2];vel[i3]+=(tx-px)*TP;vel[i3+1]+=(ty-py)*TP;vel[i3+2]+=(tz-pz)*TP;const nb=(i+47)%n,n3=nb*3;vel[i3]+=(vel[n3]-vel[i3])*AW;vel[i3+1]+=(vel[n3+1]-vel[i3+1])*AW;vel[i3+2]+=(vel[n3+2]-vel[i3+2])*AW;for(let k=0;k<SO.length;k++){const j=(i+SO[k])%n,j3=j*3,dx=px-pos[j3],dy=py-pos[j3+1],dz=pz-pos[j3+2],d2=dx*dx+dy*dy+dz*dz;if(d2<SD&&d2>1e-8){const iD=1/Math.sqrt(d2),s=(1-d2/SD)*SK;vel[i3]+=dx*iD*s;vel[i3+1]+=dy*iD*s;vel[i3+2]+=dz*iD*s;}}vel[i3]+=(Math.random()-0.5)*0.006*flow;vel[i3+1]+=(Math.random()-0.5)*0.006*flow;vel[i3+2]+=(Math.random()-0.5)*0.006*flow;vel[i3]*=DP;vel[i3+1]*=DP;vel[i3+2]*=DP;const sp=Math.sqrt(vel[i3]*vel[i3]+vel[i3+1]*vel[i3+1]+vel[i3+2]*vel[i3+2]);if(sp>MX){const f=MX/sp;vel[i3]*=f;vel[i3+1]*=f;vel[i3+2]*=f;}else if(sp<MN&&sp>1e-5){const f=MN/sp;vel[i3]*=f;vel[i3+1]*=f;vel[i3+2]*=f;}pos[i3]+=vel[i3];pos[i3+1]+=vel[i3+1];pos[i3+2]+=vel[i3+2];}}},
 };
-const BEHAVIOR_ORDER = ['lorenz','aizawa','thomas','halvorsen','murmuration','vortex','curl','flock'];
+const BEHAVIOR_ORDER = ['lorenz','aizawa','thomas','halvorsen','murmuration','lightning','vortex','curl','flock'];
 
 function makeIR(ctx,dur=2.5,dec=2.2){const rate=ctx.sampleRate,len=Math.max(1,Math.floor(rate*dur)),buf=ctx.createBuffer(2,len,rate);for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,dec);}return buf;}
 function makeDot(){const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.3,'rgba(255,255,255,0.6)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);const t=new THREE.CanvasTexture(c);t.needsUpdate=true;return t;}
