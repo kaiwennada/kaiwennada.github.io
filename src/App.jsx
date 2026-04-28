@@ -297,6 +297,83 @@ export default function App() {
     return()=>cancelAnimationFrame(rafRef.current);
   },[reactivity]);
   const toggleRunning = async()=>{ if(!running){await startAudio();setRunning(true);}else{stopAudio();setRunning(false);} };
+  // --- keyboard -> MIDI / synth input for PC users
+  const midiRef = useRef({ outputs: [] });
+  const activeNotesRef = useRef(new Map());
+  // key -> semitone offset relative to center
+  const KEY_TO_SEMITONE = {
+    'z':0,'s':1,'x':2,'d':3,'c':4,'v':5,'g':6,'b':7,'h':8,'n':9,'j':10,'m':11,
+    'q':-12,'2':-11,'w':-10,'3':-9,'e':-8,'r':-7,'5':-6,'t':-5,'6':-4,'y':-3,'7':-2,'u':-1
+  };
+
+  // send to WebMIDI outputs if available
+  useEffect(()=>{
+    if(navigator.requestMIDIAccess){
+      navigator.requestMIDIAccess().then(ma=>{
+        const outs=[]; for(const o of ma.outputs.values()) outs.push(o); midiRef.current.outputs=outs;
+      }).catch(()=>{});
+    }
+  },[]);
+
+  const noteOn = async(midiNote, velocity=127)=>{
+    const ctx = ctxRef.current || await ensureCtx();
+    if(!ctx) return;
+    // ensure synth bus exists (start synth audio stack if necessary)
+    if(!synthRef.current) await startAudio();
+    const outBus = synthRef.current?.bus || ctx.destination;
+    // build a small voice (3 oscillators matching oscPRef)
+    const oscs=[], gains=[];
+    const p = oscPRef.current;
+    const pan = ctx.createStereoPanner();
+    const noteGain = ctx.createGain(); noteGain.gain.value = 0;
+    noteGain.connect(pan); pan.connect(outBus);
+    for(let i=0;i<3;i++){
+      const op = p[i]||{wave:'sine',det:0,vol:0.3};
+      const o = ctx.createOscillator(); o.type = op.wave; o.detune.value = op.det;
+      const g = ctx.createGain(); g.gain.value = op.vol * (velocity/127);
+      o.connect(g); g.connect(noteGain);
+      o.start(); oscs.push(o); gains.push(g);
+    }
+    // set pitch
+    const freq = 440 * Math.pow(2,(midiNote-69)/12);
+    oscs.forEach(o=>o.frequency.setValueAtTime(freq,ctx.currentTime));
+    // ADSR envelope
+    const now = ctx.currentTime; const a = Math.max(0.001,adsrPRef.current.a), d = Math.max(0.001,adsrPRef.current.d), s = adsrPRef.current.s;
+    noteGain.gain.cancelScheduledValues(now); noteGain.gain.setValueAtTime(0,now);
+    noteGain.gain.linearRampToValueAtTime(1, now + a);
+    noteGain.gain.linearRampToValueAtTime(s, now + a + d);
+    // simple panning based on midiNote
+    pan.pan.setTargetAtTime(((midiNote%12)-6)/6, now, 0.02);
+    // record active
+    const releaseFn = ()=>{
+      const r = Math.max(0.05, adsrPRef.current.r);
+      const t = ctx.currentTime; noteGain.gain.cancelScheduledValues(t); noteGain.gain.setValueAtTime(noteGain.gain.value, t); noteGain.gain.linearRampToValueAtTime(0, t + r);
+      setTimeout(()=>{ try{ oscs.forEach(o=>{ o.stop(); try{o.disconnect();}catch{} }); gains.forEach(g=>{ try{g.disconnect();}catch{} }); try{noteGain.disconnect(); pan.disconnect();}catch{} }catch{} }, (r+0.1)*1000);
+    };
+    activeNotesRef.current.set(midiNote, { oscs, gains, noteGain, pan, releaseFn });
+    // forward to MIDI outputs
+    midiRef.current.outputs.forEach(o=>{ try{o.send([0x90, midiNote & 0x7f, velocity & 0x7f]); }catch{} });
+  };
+
+  const noteOff = (midiNote)=>{
+    const rec = activeNotesRef.current.get(midiNote); if(!rec) return;
+    try{ rec.releaseFn(); }catch{} activeNotesRef.current.delete(midiNote);
+    midiRef.current.outputs.forEach(o=>{ try{o.send([0x80, midiNote & 0x7f, 0]); }catch{} });
+  };
+
+  useEffect(()=>{
+    const onKeyDown = async(e)=>{
+      if(e.repeat) return; const k = (e.key||'').toLowerCase(); if(!(k in KEY_TO_SEMITONE)) return;
+      const semitone = KEY_TO_SEMITONE[k];
+      const centerMidi = Math.round(69 + 12*Math.log2((pitchRef.current?.centerFreq||220)/440));
+      const midiNote = centerMidi + semitone;
+      if(activeNotesRef.current.has(midiNote)) return;
+      await noteOn(midiNote, 100);
+    };
+    const onKeyUp = (e)=>{ const k=(e.key||'').toLowerCase(); if(!(k in KEY_TO_SEMITONE)) return; const semitone=KEY_TO_SEMITONE[k]; const centerMidi = Math.round(69 + 12*Math.log2((pitchRef.current?.centerFreq||220)/440)); const midiNote = centerMidi + semitone; noteOff(midiNote); };
+    window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp);
+    return ()=>{ window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+  },[]);
   const S = (label, children) => (
     <div style={{marginBottom:18}}>
       <div style={{fontSize:9,letterSpacing:'0.28em',textTransform:'uppercase',color:'rgba(232,227,211,0.38)',marginBottom:9,paddingBottom:4,borderBottom:'1px solid rgba(232,227,211,0.07)',fontWeight:500}}>{label}</div>
